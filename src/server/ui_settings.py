@@ -1,4 +1,5 @@
 import json
+import re
 
 import attr
 
@@ -13,6 +14,38 @@ DEFAULT_THEME = "solarized-light"
 # the default is the bare :root block rather than an attribute selector.
 THEMES = ("dark", "solarized-light", "solarized-dark")
 
+# Keep in sync with TERMINAL_FONT in ui/src/components/TerminalPane.jsx, whose default size this is.
+DEFAULT_TERMINAL_FONT_SIZE = 17
+TERMINAL_FONT_SIZE_RANGE = (6, 48)
+_MAX_FONT_FAMILY_LENGTH = 200
+# A font family is a comma-separated list of names, some quoted; nothing else belongs in one, and
+# xterm hands it to CSS and the canvas as-is.
+_FONT_FAMILY_RE = re.compile(r"""[A-Za-z0-9 ,'"_.-]+""")
+
+
+def terminal_font_size_error(value: object) -> str | None:
+    low, high = TERMINAL_FONT_SIZE_RANGE
+    if not isinstance(value, int) or isinstance(value, bool) or not low <= value <= high:
+        return f"terminal_font_size must be a whole number from {low} to {high}; got {value!r}"
+    return None
+
+
+def terminal_font_family_error(value: object) -> str | None:
+    """None is valid: it means the built-in font stack, so a later change to that stack still applies."""
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or len(value) > _MAX_FONT_FAMILY_LENGTH
+        or not _FONT_FAMILY_RE.fullmatch(value)
+    ):
+        return (
+            "terminal_font_family must be null or a CSS font-family list (letters, digits, spaces, commas, "
+            f"quotes, - _ .), at most {_MAX_FONT_FAMILY_LENGTH} characters; got {value!r}"
+        )
+    return None
+
 
 @attr.s(auto_attribs=True, frozen=True)
 class UiSettings:
@@ -21,15 +54,34 @@ class UiSettings:
     # What the side panel shows. Server-side, unlike the panel's width, so that Claude can point it
     # at a dev server it just started; None until anyone has, and the panel shows its home page.
     side_panel_url: str | None = None
+    terminal_font_size: int = DEFAULT_TERMINAL_FONT_SIZE
+    # None means the client's built-in font stack.
+    terminal_font_family: str | None = None
 
-    def to_json(self) -> dict[str, bool | str | None]:
-        return {"side_panel": self.side_panel, "theme": self.theme, "side_panel_url": self.side_panel_url}
+    def to_json(self) -> dict[str, bool | int | str | None]:
+        return {
+            "side_panel": self.side_panel,
+            "theme": self.theme,
+            "side_panel_url": self.side_panel_url,
+            "terminal_font_size": self.terminal_font_size,
+            "terminal_font_family": self.terminal_font_family,
+        }
+
+    def validate(self) -> None:
+        if self.theme not in THEMES:
+            raise ValueError(f"unknown theme {self.theme!r}; expected one of {', '.join(THEMES)}")
+        for problem in (
+            terminal_font_size_error(self.terminal_font_size),
+            terminal_font_family_error(self.terminal_font_family),
+        ):
+            if problem is not None:
+                raise ValueError(problem)
 
 
 def load_ui_settings() -> UiSettings:
     """Read the persisted UI settings, falling back to defaults only when nothing is saved yet.
 
-    A malformed file, or a theme this build doesn't know, raises instead of quietly reverting to
+    A malformed file, or a value this build doesn't accept (an unknown theme, say), raises instead of quietly reverting to
     defaults — a setting that silently forgets what you chose is worse to debug than one that says
     so.
     """
@@ -41,15 +93,23 @@ def load_ui_settings() -> UiSettings:
     if theme not in THEMES:
         raise ValueError(f"unknown theme {theme!r} in {UI_SETTINGS_PATH}; expected one of {', '.join(THEMES)}")
     url = raw.get("side_panel_url")
-    return UiSettings(
-        side_panel=bool(raw.get("side_panel", False)), theme=theme, side_panel_url=None if url is None else str(url)
+    settings = UiSettings(
+        side_panel=bool(raw.get("side_panel", False)),
+        theme=theme,
+        side_panel_url=None if url is None else str(url),
+        terminal_font_size=raw.get("terminal_font_size", DEFAULT_TERMINAL_FONT_SIZE),
+        terminal_font_family=raw.get("terminal_font_family"),
     )
+    try:
+        settings.validate()
+    except ValueError as e:
+        raise ValueError(f"{e} (in {UI_SETTINGS_PATH})") from e
+    return settings
 
 
 def save_ui_settings(settings: UiSettings) -> None:
     """Persist settings via a temp file + rename, so an interrupted write can't corrupt the file."""
-    if settings.theme not in THEMES:
-        raise ValueError(f"unknown theme {settings.theme!r}; expected one of {', '.join(THEMES)}")
+    settings.validate()
     UI_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = UI_SETTINGS_PATH.with_name(UI_SETTINGS_PATH.name + ".tmp")
     tmp_path.write_text(json.dumps(settings.to_json(), indent=2) + "\n")

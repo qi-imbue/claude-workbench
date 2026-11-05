@@ -6,7 +6,7 @@ import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import * as api from '../api';
 import { createLinkSupport } from '../links';
 import { filterOsc52Noise, handleOsc52 } from '../osc52';
-import { forgetTab, state, theme } from '../store';
+import { forgetTab, state, terminalFont, theme } from '../store';
 import { xtermTheme } from '../themes';
 
 const RECONNECT_POLL_MS = 2000;
@@ -15,14 +15,18 @@ const RECONNECT_POLL_MS = 2000;
 // cols * 12 bytes per line held, so this is a few MB per terminal once one is really full.
 const SCROLLBACK_LINES = 10000;
 
-// iTerm2's text settings, as far as a browser can follow them: Monaco at 17, natural spacing.
-// Monaco is the one that matters -- it's on every Mac -- and the rest are for everyone else.
-// No lineHeight: xterm sizes a cell from the font's own ascent plus descent, not from the font
-// size, so its default of 1 is already iTerm2's vertical spacing of 100%.
-const TERMINAL_FONT = {
-  fontFamily: 'Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace',
-  fontSize: 17,
-};
+// The default font follows iTerm2's text settings, as far as a browser can: Monaco at 17 (the
+// size is DEFAULT_TERMINAL_FONT_SIZE in ui_settings.py), natural spacing. Monaco is the one that
+// matters -- it's on every Mac -- and the rest are for everyone else. Both can be changed in the
+// settings dialog. No lineHeight: xterm sizes a cell from the font's own ascent plus descent, not
+// from the font size, so its default of 1 is already iTerm2's vertical spacing of 100%.
+export const DEFAULT_TERMINAL_FONT_FAMILY =
+  'Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace';
+
+function xtermFont({ size, family }) {
+  // The chosen family still falls back to monospace, so a font this machine lacks isn't Times.
+  return { fontSize: size, fontFamily: family ? `${family}, monospace` : DEFAULT_TERMINAL_FONT_FAMILY };
+}
 
 function wsUrl(tabId) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -197,7 +201,7 @@ export function TerminalPane(props) {
     const links = createLinkSupport(host, setLinkHint);
     onCleanup(links.dispose);
     term = new Terminal({
-      ...TERMINAL_FONT,
+      ...xtermFont(terminalFont()),
       cursorBlink: false,
       cursorStyle: 'block',
       scrollback: SCROLLBACK_LINES,
@@ -242,6 +246,14 @@ export function TerminalPane(props) {
 
   createEffect(() => {
     if (term) term.options.theme = xtermTheme(theme());
+  });
+
+  createEffect(() => {
+    const font = xtermFont(terminalFont());
+    if (!term || (term.options.fontSize === font.fontSize && term.options.fontFamily === font.fontFamily)) return;
+    Object.assign(term.options, font);
+    // A new cell size means a new number of rows and columns, which the PTY has to hear about.
+    refit();
   });
 
   onCleanup(() => {

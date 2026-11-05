@@ -37,6 +37,11 @@ const [state, setState] = createStore({
 });
 
 const [theme, setThemeSignal] = createSignal(THEMES[bootstrap.theme] ? bootstrap.theme : DEFAULT_THEME);
+/** The terminal font, as the server last saved it. `family` is null for the built-in stack. */
+const [terminalFont, setTerminalFontSignal] = createSignal({
+  size: bootstrap.terminal_font_size,
+  family: bootstrap.terminal_font_family ?? null,
+});
 /** Bumped when something asks for an editor panel. The layout owns dockview, so it does the
  *  opening; this is how the top bar reaches it without a reference to the dock. */
 const [editorRequests, setEditorRequests] = createSignal(0);
@@ -45,7 +50,7 @@ const [sidebarHidden, setSidebarHiddenSignal] = createSignal(localStorage.getIte
 /** Guards against a slow workspace load landing after the user has moved on to another one. */
 let switchToken = 0;
 
-export { state, theme, sidebarHidden, editorRequests };
+export { state, theme, terminalFont, sidebarHidden, editorRequests };
 
 export function requestEditor() {
   setEditorRequests((n) => n + 1);
@@ -65,6 +70,13 @@ export function applyTheme(name) {
     // Already applied locally; it just won't outlive this page.
     console.warn('could not save the colour scheme');
   });
+}
+
+/** Change the font every terminal is drawn in. Saved before it is applied, unlike the theme: the
+ *  server is what checks a size or family is acceptable, so a rejected one throws to the caller. */
+export async function saveTerminalFont(patch) {
+  const saved = await api.saveUiSettings(patch);
+  setTerminalFontSignal({ size: saved.terminal_font_size, family: saved.terminal_font_family });
 }
 
 export function activeWorkspace() {

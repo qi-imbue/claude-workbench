@@ -12,6 +12,14 @@ from server import app as srv
 from server import ui_settings
 from server.ui_settings import UiSettings
 
+DEFAULTS_JSON = {
+    "side_panel": False,
+    "theme": "solarized-light",
+    "side_panel_url": None,
+    "terminal_font_size": 17,
+    "terminal_font_family": None,
+}
+
 
 def _client() -> TestClient[Litestar]:
     return TestClient(app=srv.app)
@@ -79,19 +87,15 @@ def test_malformed_file_raises(settings_path: Path) -> None:
 def test_get_settings_reports_default() -> None:
     resp = _client().get("/api/ui/settings")
     assert resp.status_code == 200
-    assert resp.json() == {"side_panel": False, "theme": "solarized-light", "side_panel_url": None}
+    assert resp.json() == {**DEFAULTS_JSON, "side_panel": False}
 
 
 def test_post_settings_persists(settings_path: Path) -> None:
     client = _client()
     resp = client.post("/api/ui/settings", json={"side_panel": True})
     assert resp.status_code == 200
-    assert resp.json() == {"side_panel": True, "theme": "solarized-light", "side_panel_url": None}
-    assert client.get("/api/ui/settings").json() == {
-        "side_panel": True,
-        "theme": "solarized-light",
-        "side_panel_url": None,
-    }
+    assert resp.json() == {**DEFAULTS_JSON, "side_panel": True}
+    assert client.get("/api/ui/settings").json() == {**DEFAULTS_JSON, "side_panel": True}
     assert ui_settings.load_ui_settings() == UiSettings(side_panel=True)
 
 
@@ -147,18 +151,10 @@ def test_updating_one_setting_leaves_the_other_alone() -> None:
     client = _client()
     client.post("/api/ui/settings", json={"side_panel": True})
     client.post("/api/ui/settings", json={"theme": "solarized-light"})
-    assert client.get("/api/ui/settings").json() == {
-        "side_panel": True,
-        "theme": "solarized-light",
-        "side_panel_url": None,
-    }
+    assert client.get("/api/ui/settings").json() == {**DEFAULTS_JSON, "side_panel": True}
 
     client.post("/api/ui/settings", json={"side_panel": False})
-    assert client.get("/api/ui/settings").json() == {
-        "side_panel": False,
-        "theme": "solarized-light",
-        "side_panel_url": None,
-    }
+    assert client.get("/api/ui/settings").json() == {**DEFAULTS_JSON, "side_panel": False}
 
 
 # ── the panel's URL ────────────────────────────────────────────────────────────
@@ -235,3 +231,51 @@ def test_index_reports_the_panel_setting() -> None:
     # the app itself must still be there
     assert "/static/ui/bundle.js" in body
     assert 'id="root"' in body
+
+
+# ── terminal font ──────────────────────────────────────────────────────────────
+
+
+def test_terminal_font_round_trips_and_resets() -> None:
+    client = _client()
+    resp = client.post(
+        "/api/ui/settings", json={"terminal_font_size": 13, "terminal_font_family": ' "Fira Code", Menlo '}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["terminal_font_size"] == 13
+    assert resp.json()["terminal_font_family"] == '"Fira Code", Menlo'
+
+    client.post("/api/ui/settings", json={"theme": "dark"})
+    loaded = ui_settings.load_ui_settings()
+    assert (loaded.terminal_font_size, loaded.terminal_font_family) == (13, '"Fira Code", Menlo')
+
+    client.post("/api/ui/settings", json={"terminal_font_family": None})
+    assert ui_settings.load_ui_settings().terminal_font_family is None
+    assert ui_settings.load_ui_settings().terminal_font_size == 13
+
+
+@pytest.mark.parametrize("size", [5, 49, 12.5, "14", True, None])
+def test_bad_terminal_font_size_is_400_and_changes_nothing(size: object) -> None:
+    client = _client()
+    client.post("/api/ui/settings", json={"terminal_font_size": 14})
+    assert client.post("/api/ui/settings", json={"terminal_font_size": size}).status_code == 400
+    assert ui_settings.load_ui_settings().terminal_font_size == 14
+
+
+@pytest.mark.parametrize("family", ["", "   ", "Menlo; color: red", "a{b}", "x" * 201, 7])
+def test_bad_terminal_font_family_is_400(family: object) -> None:
+    assert _client().post("/api/ui/settings", json={"terminal_font_family": family}).status_code == 400
+    assert ui_settings.load_ui_settings().terminal_font_family is None
+
+
+def test_loading_bad_terminal_font_size_raises(settings_path: Path) -> None:
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(json.dumps({"terminal_font_size": 400}))
+    with pytest.raises(ValueError):
+        ui_settings.load_ui_settings()
+
+
+def test_index_carries_the_terminal_font() -> None:
+    client = _client()
+    client.post("/api/ui/settings", json={"terminal_font_size": 12})
+    assert '"terminal_font_size": 12' in client.get("/").text

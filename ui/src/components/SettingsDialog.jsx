@@ -1,10 +1,11 @@
 import { Show, createSignal, onCleanup, onMount } from 'solid-js';
 
 import { BILLING_LABELS } from '../billing';
-import { refreshSettings, saveArchiveRetention, saveDefaultBilling, state } from '../store';
+import { refreshSettings, saveArchiveRetention, saveDefaultBilling, saveTerminalFont, state, terminalFont } from '../store';
+import { DEFAULT_TERMINAL_FONT_FAMILY } from './TerminalPane';
 
 /** The settings page: which billing mode new workspaces get, whether each mode has anything to
- *  bill to, and how long archived workspaces are kept before they are deleted. The subscription half is where `claude auth login` gets explained, since that is
+ *  bill to, the terminal font, and how long archived workspaces are kept before they are deleted. The subscription half is where `claude auth login` gets explained, since that is
  *  the one credential the workbench can't fetch for you.
  *
  *  Reads through to the server on open — the login state lives in ~/.claude and can change from
@@ -52,6 +53,18 @@ export function SettingsDialog(props) {
     }
   }
 
+  async function chooseFont(patch, input) {
+    setError('');
+    try {
+      await saveTerminalFont(patch);
+    } catch (err) {
+      setError(err.message || String(err));
+      // Show what is actually in effect, not the rejected value.
+      const font = terminalFont();
+      input.value = 'terminal_font_size' in patch ? font.size : (font.family ?? '');
+    }
+  }
+
   onMount(() => {
     recheck();
     const onKey = (e) => e.key === 'Escape' && props.onClose();
@@ -81,6 +94,36 @@ export function SettingsDialog(props) {
             Each workspace is created with one of these and keeps it, so changing this leaves
             existing workspaces — and the conversations in them — on what they started with. The
             workspace dialog can override it per workspace.
+          </p>
+        </section>
+
+        <section>
+          <h3>Terminal font</h3>
+          <label>
+            Size (px)
+            <input
+              type="number"
+              min="6"
+              max="48"
+              step="1"
+              value={terminalFont().size}
+              onChange={(e) => chooseFont({ terminal_font_size: Number(e.currentTarget.value) }, e.currentTarget)}
+            />
+          </label>
+          <label>
+            Font
+            <input
+              type="text"
+              placeholder={DEFAULT_TERMINAL_FONT_FAMILY}
+              value={terminalFont().family ?? ''}
+              onChange={(e) =>
+                chooseFont({ terminal_font_family: e.currentTarget.value.trim() || null }, e.currentTarget)
+              }
+            />
+          </label>
+          <p class="wb-hint">
+            Any CSS font-family list, e.g. <code>"JetBrains Mono", Menlo</code>. The font has to be
+            installed on the computer running this browser. Leave it empty for the default.
           </p>
         </section>
 

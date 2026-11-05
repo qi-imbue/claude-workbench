@@ -13,6 +13,8 @@ from server.ui_settings import THEMES
 from server.ui_settings import UiSettings
 from server.ui_settings import load_ui_settings
 from server.ui_settings import save_ui_settings
+from server.ui_settings import terminal_font_family_error
+from server.ui_settings import terminal_font_size_error
 
 
 def _is_panel_url(value: object) -> bool:
@@ -32,11 +34,12 @@ async def update_ui_settings(request: Request[Any, Any, Any]) -> Response[JsonDi
     """Update UI settings. Keys left out keep their current value.
 
     Open pages poll these, so `side_panel` and `side_panel_url` reach them within a few seconds;
-    `theme` is applied live by the client that set it. `side_panel_url` is null for the panel's home
-    page, a path on this origin (eg `/proxy/3000/`), or an http(s) URL.
+    `theme` and the terminal font are applied live by the client that set them, and reach other pages
+    on their next load. `side_panel_url` is null for the panel's home page, a path on this origin (eg
+    `/proxy/3000/`), or an http(s) URL. `terminal_font_family` is null for the built-in font stack.
     """
     data = await json_body(request)
-    known = {"side_panel", "theme", "side_panel_url"}
+    known = {"side_panel", "theme", "side_panel_url", "terminal_font_size", "terminal_font_family"}
     if not known & data.keys():
         return error(400, error=f"expected at least one of: {', '.join(sorted(known))}")
 
@@ -49,7 +52,19 @@ async def update_ui_settings(request: Request[Any, Any, Any]) -> Response[JsonDi
     if url is not None and not _is_panel_url(url):
         return error(400, error=f"side_panel_url must be null, a path starting with /, or an http(s) URL; got {url!r}")
 
-    settings = UiSettings(side_panel=bool(data.get("side_panel", current.side_panel)), theme=theme, side_panel_url=url)
+    font_size = data.get("terminal_font_size", current.terminal_font_size)
+    font_family = data.get("terminal_font_family", current.terminal_font_family)
+    for problem in (terminal_font_size_error(font_size), terminal_font_family_error(font_family)):
+        if problem is not None:
+            return error(400, error=problem)
+
+    settings = UiSettings(
+        side_panel=bool(data.get("side_panel", current.side_panel)),
+        theme=theme,
+        side_panel_url=url,
+        terminal_font_size=font_size,
+        terminal_font_family=font_family.strip() if font_family is not None else None,
+    )
     save_ui_settings(settings)
     # The editor reads its theme from the shared settings file, which running instances watch, so
     # this recolours any open editor panel without a reload.
