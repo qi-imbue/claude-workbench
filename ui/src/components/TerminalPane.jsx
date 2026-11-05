@@ -27,7 +27,7 @@ export const DEFAULT_TERMINAL_FONT_FAMILY =
 /** A chosen family, falling back to the default stack. The bundled fonts only carry alphabets, so
  *  the box drawing and symbols Claude Code's UI is made of come from the fallback -- and the
  *  default stack has fonts with them, where a bare `monospace` often doesn't. */
-export const terminalFontFamily = (family) =>
+const terminalFontFamily = (family) =>
   family ? `${family}, ${DEFAULT_TERMINAL_FONT_FAMILY}` : DEFAULT_TERMINAL_FONT_FAMILY;
 
 function xtermFont({ size, family }) {

@@ -42,7 +42,7 @@ body { display: flex; flex-direction: row; }
 }
 #new-terminal:hover, .bar-btn:hover { color: var(--bright); background: var(--hover-bg); border-color: var(--menu-border); }
 
-#theme-picker {
+#theme-picker, .bar-select {
   background: var(--input-bg);
   color: var(--btn-fg);
   border: 1px solid var(--border);
@@ -52,8 +52,9 @@ body { display: flex; flex-direction: row; }
   font-family: inherit;
   cursor: pointer;
 }
-#theme-picker:hover { color: var(--bright); border-color: var(--btn-border); }
-#theme-picker:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#theme-picker:hover, .bar-select:hover { color: var(--bright); border-color: var(--btn-border); }
+#theme-picker:focus-visible, .bar-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#font-picker { max-width: 16ch; }
 
 #sp-split { flex: 1; display: flex; min-height: 0; }
 #sp-left { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }

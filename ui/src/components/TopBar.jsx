@@ -3,6 +3,7 @@ import { Show, createSignal } from 'solid-js';
 import * as api from '../api';
 import { hidden as panelHidden, setHidden as setPanelHidden, enabled as sidePanelEnabled } from '../sidePanel';
 import { activeWorkspace, adoptTab, newTab, requestEditor, sidebarHidden, state, toggleSidebar } from '../store';
+import { FontPicker } from './FontPicker';
 import { Menu } from './Menu';
 import { ThemePicker } from './ThemePicker';
 
@@ -60,6 +61,7 @@ export function TopBar() {
             &#9723; panel
           </button>
         </Show>
+        <FontPicker />
         <ThemePicker />
       </div>
       <Show when={menu()}>
