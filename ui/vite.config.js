@@ -24,10 +24,34 @@ function xtermSubpixelGlyphWidth() {
   };
 }
 
+/** Drop fontsource's .woff fallbacks, keeping only .woff2.
+ *
+ *  Every @font-face lists a .woff after its .woff2 for browsers too old to read woff2, which no
+ *  browser that runs this app is. Left in, they roughly double what the bundled fonts add to the
+ *  image, for files that are never fetched. Fails the build if nothing matched, so a change to
+ *  fontsource's CSS can't quietly bring them back. */
+function woff2Only() {
+  const fallback = /,\s*url\([^)]*\.woff\) format\('woff'\)/g;
+  return {
+    name: 'woff2-only',
+    enforce: 'pre',
+    transform(code, id) {
+      if (!/[\\/]@fontsource[\\/][^\\/]+[\\/][^\\/]+\.css$/.test(id)) return null;
+      const stripped = code.replace(fallback, '');
+      if (stripped === code) throw new Error(`woff2-only: no .woff fallback found in ${id}; recheck the pattern`);
+      return stripped;
+    },
+  };
+}
+
 // Built assets land in the directory Litestar serves as /static/ui, under fixed names: the page is
 // a Jinja template that references them by name, and the server sends no-store for /static.
 export default defineConfig({
-  plugins: [solid(), xtermSubpixelGlyphWidth()],
+  plugins: [solid(), xtermSubpixelGlyphWidth(), woff2Only()],
+  // The server mounts the fonts directory at /fonts, outside no-store /static (see app.py).
+  experimental: {
+    renderBuiltUrl: (filename) => (filename.startsWith('fonts/') ? `/${filename}` : { relative: true }),
+  },
   build: {
     outDir: '../src/server/static/ui',
     emptyOutDir: true,
@@ -36,7 +60,11 @@ export default defineConfig({
       output: {
         entryFileNames: 'bundle.js',
         chunkFileNames: '[name].js',
-        assetFileNames: 'bundle.[ext]',
+        // Fonts keep their own names, which say which font and weight each file is, plus a content
+        // hash: the server caches them for a year, which is only safe if a changed file gets a new
+        // name.
+        assetFileNames: (info) =>
+          /\.woff2$/.test(info.names?.[0] ?? '') ? 'fonts/[name]-[hash][extname]' : 'bundle.[ext]',
       },
     },
   },

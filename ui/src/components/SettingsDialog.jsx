@@ -1,8 +1,12 @@
-import { Show, createSignal, onCleanup, onMount } from 'solid-js';
+import { For, Show, createSignal, onCleanup, onMount } from 'solid-js';
 
 import { BILLING_LABELS } from '../billing';
+import { BUNDLED_FONTS, bundledFamily } from '../fonts';
 import { refreshSettings, saveArchiveRetention, saveDefaultBilling, saveTerminalFont, state, terminalFont } from '../store';
-import { DEFAULT_TERMINAL_FONT_FAMILY } from './TerminalPane';
+import { terminalFontFamily } from './TerminalPane';
+
+const DEFAULT_CHOICE = '';
+const CUSTOM_CHOICE = '__custom__';
 
 /** The settings page: which billing mode new workspaces get, whether each mode has anything to
  *  bill to, the terminal font, and how long archived workspaces are kept before they are deleted. The subscription half is where `claude auth login` gets explained, since that is
@@ -53,6 +57,26 @@ export function SettingsDialog(props) {
     }
   }
 
+  // Custom is a mode as well as a value: picking it shows the text box before anything is typed.
+  const [customMode, setCustomMode] = createSignal(false);
+  const customFamily = () => {
+    const family = terminalFont().family;
+    return family !== null && !BUNDLED_FONTS.some((name) => bundledFamily(name) === family);
+  };
+  const fontChoice = () => {
+    const family = terminalFont().family;
+    if (customMode() || customFamily()) return CUSTOM_CHOICE;
+    if (family === null) return DEFAULT_CHOICE;
+    return BUNDLED_FONTS.find((name) => bundledFamily(name) === family);
+  };
+  const previewFamily = () => terminalFontFamily(terminalFont().family);
+
+  function pickFont(choice) {
+    setCustomMode(choice === CUSTOM_CHOICE);
+    if (choice === CUSTOM_CHOICE) return;
+    chooseFont({ terminal_font_family: choice === DEFAULT_CHOICE ? null : bundledFamily(choice) });
+  }
+
   async function chooseFont(patch, input) {
     setError('');
     try {
@@ -61,7 +85,7 @@ export function SettingsDialog(props) {
       setError(err.message || String(err));
       // Show what is actually in effect, not the rejected value.
       const font = terminalFont();
-      input.value = 'terminal_font_size' in patch ? font.size : (font.family ?? '');
+      if (input) input.value = 'terminal_font_size' in patch ? font.size : (font.family ?? '');
     }
   }
 
@@ -112,18 +136,31 @@ export function SettingsDialog(props) {
           </label>
           <label>
             Font
-            <input
-              type="text"
-              placeholder={DEFAULT_TERMINAL_FONT_FAMILY}
-              value={terminalFont().family ?? ''}
-              onChange={(e) =>
-                chooseFont({ terminal_font_family: e.currentTarget.value.trim() || null }, e.currentTarget)
-              }
-            />
+            <select value={fontChoice()} onChange={(e) => pickFont(e.currentTarget.value)}>
+              <option value={DEFAULT_CHOICE}>Default (Monaco, Menlo, …)</option>
+              <For each={BUNDLED_FONTS}>{(name) => <option value={name}>{name}</option>}</For>
+              <option value={CUSTOM_CHOICE}>Custom…</option>
+            </select>
           </label>
-          <p class="wb-hint">
-            Any CSS font-family list, e.g. <code>"JetBrains Mono", Menlo</code>. The font has to be
-            installed on the computer running this browser. Leave it empty for the default.
+          <Show when={fontChoice() === CUSTOM_CHOICE}>
+            <label>
+              Custom font
+              <input
+                type="text"
+                placeholder={'"Hack", Menlo'}
+                value={customFamily() ? (terminalFont().family ?? '') : ''}
+                onChange={(e) =>
+                  chooseFont({ terminal_font_family: e.currentTarget.value.trim() || null }, e.currentTarget)
+                }
+              />
+            </label>
+            <p class="wb-hint">
+              Any CSS font-family list. Unlike the fonts above, it has to be installed on the
+              computer running this browser.
+            </p>
+          </Show>
+          <p class="font-preview" style={{ 'font-family': previewFamily() }}>
+            The quick brown fox — 0O 1lI {'{}'} [] =&gt; !=
           </p>
         </section>
 

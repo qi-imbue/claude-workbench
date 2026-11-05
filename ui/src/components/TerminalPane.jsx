@@ -4,6 +4,7 @@ import '@xterm/xterm/css/xterm.css';
 import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 
 import * as api from '../api';
+import '../fonts';
 import { createLinkSupport } from '../links';
 import { filterOsc52Noise, handleOsc52 } from '../osc52';
 import { forgetTab, state, terminalFont, theme } from '../store';
@@ -23,9 +24,35 @@ const SCROLLBACK_LINES = 10000;
 export const DEFAULT_TERMINAL_FONT_FAMILY =
   'Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace';
 
+/** A chosen family, falling back to the default stack. The bundled fonts only carry alphabets, so
+ *  the box drawing and symbols Claude Code's UI is made of come from the fallback -- and the
+ *  default stack has fonts with them, where a bare `monospace` often doesn't. */
+export const terminalFontFamily = (family) =>
+  family ? `${family}, ${DEFAULT_TERMINAL_FONT_FAMILY}` : DEFAULT_TERMINAL_FONT_FAMILY;
+
 function xtermFont({ size, family }) {
-  // The chosen family still falls back to monospace, so a font this machine lacks isn't Times.
-  return { fontSize: size, fontFamily: family ? `${family}, monospace` : DEFAULT_TERMINAL_FONT_FAMILY };
+  return { fontSize: size, fontFamily: terminalFontFamily(family) };
+}
+
+// The glyph xterm measures a cell with. Loading for it alone fetches just the basic Latin file of
+// each weight; the browser fetches any other range itself, once text in it is drawn.
+const MEASURED_GLYPH = 'W';
+
+/** Whether both faces the terminal draws with are ready. xterm measures one glyph to size every
+ *  cell, and a bundled webfont isn't fetched until something asks for it -- so a terminal that
+ *  measured before it arrived would lay out the fallback font's cells for good. */
+function fontReady({ fontSize, fontFamily }) {
+  return (
+    document.fonts.check(`${fontSize}px ${fontFamily}`, MEASURED_GLYPH) &&
+    document.fonts.check(`bold ${fontSize}px ${fontFamily}`, MEASURED_GLYPH)
+  );
+}
+
+function loadFont({ fontSize, fontFamily }) {
+  return Promise.all([
+    document.fonts.load(`${fontSize}px ${fontFamily}`, MEASURED_GLYPH),
+    document.fonts.load(`bold ${fontSize}px ${fontFamily}`, MEASURED_GLYPH),
+  ]);
 }
 
 function wsUrl(tabId) {
@@ -200,8 +227,11 @@ export function TerminalPane(props) {
   onMount(() => {
     const links = createLinkSupport(host, setLinkHint);
     onCleanup(links.dispose);
+    // Until the chosen font has loaded, draw in the default; the font effect swaps it in.
+    const chosen = xtermFont(terminalFont());
+    const initialFont = fontReady(chosen) ? chosen : xtermFont({ ...terminalFont(), family: null });
     term = new Terminal({
-      ...xtermFont(terminalFont()),
+      ...initialFont,
       cursorBlink: false,
       cursorStyle: 'block',
       scrollback: SCROLLBACK_LINES,
@@ -250,10 +280,18 @@ export function TerminalPane(props) {
 
   createEffect(() => {
     const font = xtermFont(terminalFont());
-    if (!term || (term.options.fontSize === font.fontSize && term.options.fontFamily === font.fontFamily)) return;
-    Object.assign(term.options, font);
-    // A new cell size means a new number of rows and columns, which the PTY has to hear about.
-    refit();
+    let stale = false;
+    onCleanup(() => (stale = true));
+    const apply = () => {
+      if (stale || disposed || !term) return;
+      if (term.options.fontSize === font.fontSize && term.options.fontFamily === font.fontFamily) return;
+      Object.assign(term.options, font);
+      // A new cell size means a new number of rows and columns, which the PTY has to hear about.
+      refit();
+    };
+    // A font that fails to load still gets applied: the fallback in its stack is better than
+    // silently ignoring the choice.
+    loadFont(font).then(apply, apply);
   });
 
   onCleanup(() => {

@@ -5,6 +5,7 @@ from litestar import Response
 from litestar.datastructures import CacheControlHeader
 
 NO_CACHE = CacheControlHeader(no_cache=True, no_store=True, must_revalidate=True)
+FONT_CACHE = CacheControlHeader(public=True, max_age=365 * 24 * 3600, immutable=True)
 
 type JsonDict = dict[str, Any]
 

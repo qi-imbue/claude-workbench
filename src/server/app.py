@@ -22,6 +22,7 @@ from server.remote_services import refresh_gh_auth_periodically
 from server.remote_services import seed_gh_auth
 from server.remote_services import seed_oh_config
 from server.routes.agents import workspace_agents
+from server.routes.common import FONT_CACHE
 from server.routes.common import NO_CACHE
 from server.routes.editor import editor_proxy
 from server.routes.editor import list_editors
@@ -120,6 +121,15 @@ app = Litestar(
         preview_proxy,
         preview_absproxy,
         terminal_ws,
+        # Font files carry a content hash in their names, so unlike everything under /static they
+        # can be cached for good: a picked font is fetched once per browser, not per page load.
+        # Mounted beside /static rather than inside it: litestar doesn't fall back from a nested
+        # mount to its parent, so /static/ui/fonts would 404 the rest of /static/ui.
+        create_static_files_router(
+            path="/fonts",
+            directories=[APP_DIR / "static" / "ui" / "fonts"],
+            cache_control=FONT_CACHE,
+        ),
         create_static_files_router(path="/static", directories=[APP_DIR / "static"], cache_control=NO_CACHE),
     ],
     template_config=TemplateConfig(directory=APP_DIR / "templates", engine=JinjaTemplateEngine),
