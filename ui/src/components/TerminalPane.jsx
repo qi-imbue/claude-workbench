@@ -4,10 +4,9 @@ import '@xterm/xterm/css/xterm.css';
 import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 
 import * as api from '../api';
-import '../fonts';
 import { createLinkSupport } from '../links';
 import { filterOsc52Noise, handleOsc52 } from '../osc52';
-import { forgetTab, state, terminalFont, theme } from '../store';
+import { forgetTab, state, terminalFontOptions, theme } from '../store';
 import { xtermTheme } from '../themes';
 
 const RECONNECT_POLL_MS = 2000;
@@ -15,45 +14,6 @@ const RECONNECT_POLL_MS = 2000;
 // scrollbar then stops well short of where the conversation actually started. Costs roughly
 // cols * 12 bytes per line held, so this is a few MB per terminal once one is really full.
 const SCROLLBACK_LINES = 10000;
-
-// The default font follows iTerm2's text settings, as far as a browser can: Monaco at 17 (the
-// size is DEFAULT_TERMINAL_FONT_SIZE in ui_settings.py), natural spacing. Monaco is the one that
-// matters -- it's on every Mac -- and the rest are for everyone else. Both can be changed in the
-// settings dialog. No lineHeight: xterm sizes a cell from the font's own ascent plus descent, not
-// from the font size, so its default of 1 is already iTerm2's vertical spacing of 100%.
-export const DEFAULT_TERMINAL_FONT_FAMILY =
-  'Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace';
-
-/** A chosen family, falling back to the default stack. The bundled fonts only carry alphabets, so
- *  the box drawing and symbols Claude Code's UI is made of come from the fallback -- and the
- *  default stack has fonts with them, where a bare `monospace` often doesn't. */
-const terminalFontFamily = (family) =>
-  family ? `${family}, ${DEFAULT_TERMINAL_FONT_FAMILY}` : DEFAULT_TERMINAL_FONT_FAMILY;
-
-function xtermFont({ size, family }) {
-  return { fontSize: size, fontFamily: terminalFontFamily(family) };
-}
-
-// The glyph xterm measures a cell with. Loading for it alone fetches just the basic Latin file of
-// each weight; the browser fetches any other range itself, once text in it is drawn.
-const MEASURED_GLYPH = 'W';
-
-/** Whether both faces the terminal draws with are ready. xterm measures one glyph to size every
- *  cell, and a bundled webfont isn't fetched until something asks for it -- so a terminal that
- *  measured before it arrived would lay out the fallback font's cells for good. */
-function fontReady({ fontSize, fontFamily }) {
-  return (
-    document.fonts.check(`${fontSize}px ${fontFamily}`, MEASURED_GLYPH) &&
-    document.fonts.check(`bold ${fontSize}px ${fontFamily}`, MEASURED_GLYPH)
-  );
-}
-
-function loadFont({ fontSize, fontFamily }) {
-  return Promise.all([
-    document.fonts.load(`${fontSize}px ${fontFamily}`, MEASURED_GLYPH),
-    document.fonts.load(`bold ${fontSize}px ${fontFamily}`, MEASURED_GLYPH),
-  ]);
-}
 
 function wsUrl(tabId) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -227,11 +187,8 @@ export function TerminalPane(props) {
   onMount(() => {
     const links = createLinkSupport(host, setLinkHint);
     onCleanup(links.dispose);
-    // Until the chosen font has loaded, draw in the default; the font effect swaps it in.
-    const chosen = xtermFont(terminalFont());
-    const initialFont = fontReady(chosen) ? chosen : xtermFont({ ...terminalFont(), family: null });
     term = new Terminal({
-      ...initialFont,
+      ...terminalFontOptions(),
       cursorBlink: false,
       cursorStyle: 'block',
       scrollback: SCROLLBACK_LINES,
@@ -279,19 +236,11 @@ export function TerminalPane(props) {
   });
 
   createEffect(() => {
-    const font = xtermFont(terminalFont());
-    let stale = false;
-    onCleanup(() => (stale = true));
-    const apply = () => {
-      if (stale || disposed || !term) return;
-      if (term.options.fontSize === font.fontSize && term.options.fontFamily === font.fontFamily) return;
-      Object.assign(term.options, font);
-      // A new cell size means a new number of rows and columns, which the PTY has to hear about.
-      refit();
-    };
-    // A font that fails to load still gets applied: the fallback in its stack is better than
-    // silently ignoring the choice.
-    loadFont(font).then(apply, apply);
+    const font = terminalFontOptions();
+    if (!term || Object.entries(font).every(([key, value]) => term.options[key] === value)) return;
+    Object.assign(term.options, font);
+    // A new cell size means a new number of rows and columns, which the PTY has to hear about.
+    refit();
   });
 
   onCleanup(() => {

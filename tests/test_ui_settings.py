@@ -18,6 +18,8 @@ DEFAULTS_JSON = {
     "side_panel_url": None,
     "terminal_font_size": 17,
     "terminal_font_family": None,
+    "terminal_line_height": 120,
+    "terminal_letter_spacing": 0,
 }
 
 
@@ -279,3 +281,28 @@ def test_index_carries_the_terminal_font() -> None:
     client = _client()
     client.post("/api/ui/settings", json={"terminal_font_size": 12})
     assert '"terminal_font_size": 12' in client.get("/").text
+
+
+def test_line_height_and_letter_spacing_round_trip() -> None:
+    client = _client()
+    resp = client.post("/api/ui/settings", json={"terminal_line_height": 105, "terminal_letter_spacing": -1})
+    assert resp.status_code == 200
+    loaded = ui_settings.load_ui_settings()
+    assert (loaded.terminal_line_height, loaded.terminal_letter_spacing) == (105, -1)
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"terminal_line_height": 79},
+        {"terminal_line_height": 201},
+        {"terminal_line_height": 1.2},
+        {"terminal_letter_spacing": -4},
+        {"terminal_letter_spacing": 0.5},
+        {"terminal_letter_spacing": None},
+    ],
+)
+def test_bad_spacing_is_400_and_changes_nothing(patch: dict[str, object]) -> None:
+    assert _client().post("/api/ui/settings", json=patch).status_code == 400
+    loaded = ui_settings.load_ui_settings()
+    assert (loaded.terminal_line_height, loaded.terminal_letter_spacing) == (120, 0)

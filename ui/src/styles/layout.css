@@ -54,7 +54,7 @@ body { display: flex; flex-direction: row; }
 }
 #theme-picker:hover, .bar-select:hover { color: var(--bright); border-color: var(--btn-border); }
 #theme-picker:focus-visible, .bar-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-#font-picker { max-width: 16ch; }
+#font-picker { max-width: 20ch; }
 
 #sp-split { flex: 1; display: flex; min-height: 0; }
 #sp-left { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }

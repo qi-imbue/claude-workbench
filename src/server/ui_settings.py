@@ -14,7 +14,6 @@ DEFAULT_THEME = "solarized-light"
 # the default is the bare :root block rather than an attribute selector.
 THEMES = ("dark", "solarized-light", "solarized-dark")
 
-# Keep in sync with TERMINAL_FONT in ui/src/components/TerminalPane.jsx, whose default size this is.
 DEFAULT_TERMINAL_FONT_SIZE = 17
 TERMINAL_FONT_SIZE_RANGE = (6, 48)
 _MAX_FONT_FAMILY_LENGTH = 200
@@ -23,11 +22,33 @@ _MAX_FONT_FAMILY_LENGTH = 200
 _FONT_FAMILY_RE = re.compile(r"""[A-Za-z0-9 ,'"_.-]+""")
 
 
-def terminal_font_size_error(value: object) -> str | None:
-    low, high = TERMINAL_FONT_SIZE_RANGE
+# Row height as a percentage of the font size. The bundled fonts declare tall line metrics, made
+# for editors, so their natural spacing looks loose in a terminal; the client overrides their
+# metrics to hit this exactly. Installed fonts can only be spaced out from their natural height.
+DEFAULT_TERMINAL_LINE_HEIGHT = 120
+TERMINAL_LINE_HEIGHT_RANGE = (80, 200)
+# Extra pixels between characters; xterm takes whole pixels.
+DEFAULT_TERMINAL_LETTER_SPACING = 0
+TERMINAL_LETTER_SPACING_RANGE = (-3, 10)
+
+
+def _whole_number_error(name: str, value: object, bounds: tuple[int, int]) -> str | None:
+    low, high = bounds
     if not isinstance(value, int) or isinstance(value, bool) or not low <= value <= high:
-        return f"terminal_font_size must be a whole number from {low} to {high}; got {value!r}"
+        return f"{name} must be a whole number from {low} to {high}; got {value!r}"
     return None
+
+
+def terminal_font_size_error(value: object) -> str | None:
+    return _whole_number_error("terminal_font_size", value, TERMINAL_FONT_SIZE_RANGE)
+
+
+def terminal_line_height_error(value: object) -> str | None:
+    return _whole_number_error("terminal_line_height", value, TERMINAL_LINE_HEIGHT_RANGE)
+
+
+def terminal_letter_spacing_error(value: object) -> str | None:
+    return _whole_number_error("terminal_letter_spacing", value, TERMINAL_LETTER_SPACING_RANGE)
 
 
 def terminal_font_family_error(value: object) -> str | None:
@@ -57,6 +78,8 @@ class UiSettings:
     terminal_font_size: int = DEFAULT_TERMINAL_FONT_SIZE
     # None means the client's built-in font stack.
     terminal_font_family: str | None = None
+    terminal_line_height: int = DEFAULT_TERMINAL_LINE_HEIGHT
+    terminal_letter_spacing: int = DEFAULT_TERMINAL_LETTER_SPACING
 
     def to_json(self) -> dict[str, bool | int | str | None]:
         return {
@@ -65,6 +88,8 @@ class UiSettings:
             "side_panel_url": self.side_panel_url,
             "terminal_font_size": self.terminal_font_size,
             "terminal_font_family": self.terminal_font_family,
+            "terminal_line_height": self.terminal_line_height,
+            "terminal_letter_spacing": self.terminal_letter_spacing,
         }
 
     def validate(self) -> None:
@@ -73,6 +98,8 @@ class UiSettings:
         for problem in (
             terminal_font_size_error(self.terminal_font_size),
             terminal_font_family_error(self.terminal_font_family),
+            terminal_line_height_error(self.terminal_line_height),
+            terminal_letter_spacing_error(self.terminal_letter_spacing),
         ):
             if problem is not None:
                 raise ValueError(problem)
@@ -99,6 +126,8 @@ def load_ui_settings() -> UiSettings:
         side_panel_url=None if url is None else str(url),
         terminal_font_size=raw.get("terminal_font_size", DEFAULT_TERMINAL_FONT_SIZE),
         terminal_font_family=raw.get("terminal_font_family"),
+        terminal_line_height=raw.get("terminal_line_height", DEFAULT_TERMINAL_LINE_HEIGHT),
+        terminal_letter_spacing=raw.get("terminal_letter_spacing", DEFAULT_TERMINAL_LETTER_SPACING),
     )
     try:
         settings.validate()

@@ -2,6 +2,7 @@ import { batch, createSignal } from 'solid-js';
 import { createStore } from 'solid-js/store';
 
 import * as api from './api';
+import { resolveTerminalFont } from './terminalFont';
 import { DEFAULT_THEME, THEMES } from './themes';
 
 const bootstrap = window.__WORKBENCH__ || {};
@@ -37,11 +38,19 @@ const [state, setState] = createStore({
 });
 
 const [theme, setThemeSignal] = createSignal(THEMES[bootstrap.theme] ? bootstrap.theme : DEFAULT_THEME);
-/** The terminal font, as the server last saved it. `family` is null for the built-in stack. */
-const [terminalFont, setTerminalFontSignal] = createSignal({
-  size: bootstrap.terminal_font_size,
-  family: bootstrap.terminal_font_family ?? null,
+/** The terminal font settings, as the server last saved them. `family` is null for the built-in
+ *  stack; `lineHeight` is a percentage of the size, `letterSpacing` whole pixels. */
+const fontSettings = (saved) => ({
+  size: saved.terminal_font_size,
+  family: saved.terminal_font_family ?? null,
+  lineHeight: saved.terminal_line_height,
+  letterSpacing: saved.terminal_letter_spacing,
 });
+const [terminalFont, setTerminalFontSignal] = createSignal(fontSettings(bootstrap));
+/** Those settings as xterm options, faces loaded. Null until initTerminalFont() has run, which
+ *  main.jsx waits for before rendering, so a terminal never opens in the wrong font. */
+const [terminalFontOptions, setTerminalFontOptions] = createSignal(null);
+let fontToken = 0;
 /** Bumped when something asks for an editor panel. The layout owns dockview, so it does the
  *  opening; this is how the top bar reaches it without a reference to the dock. */
 const [editorRequests, setEditorRequests] = createSignal(0);
@@ -50,7 +59,7 @@ const [sidebarHidden, setSidebarHiddenSignal] = createSignal(localStorage.getIte
 /** Guards against a slow workspace load landing after the user has moved on to another one. */
 let switchToken = 0;
 
-export { state, theme, terminalFont, sidebarHidden, editorRequests };
+export { state, theme, terminalFont, terminalFontOptions, sidebarHidden, editorRequests };
 
 export function requestEditor() {
   setEditorRequests((n) => n + 1);
@@ -72,11 +81,23 @@ export function applyTheme(name) {
   });
 }
 
+async function applyTerminalFont(settings) {
+  const token = ++fontToken;
+  const options = await resolveTerminalFont(settings);
+  // A slow font finishing after a later choice must not undo it.
+  if (token === fontToken) setTerminalFontOptions(options);
+}
+
+export function initTerminalFont() {
+  return applyTerminalFont(terminalFont());
+}
+
 /** Change the font every terminal is drawn in. Saved before it is applied, unlike the theme: the
- *  server is what checks a size or family is acceptable, so a rejected one throws to the caller. */
+ *  server is what checks a value is acceptable, so a rejected one throws to the caller. */
 export async function saveTerminalFont(patch) {
-  const saved = await api.saveUiSettings(patch);
-  setTerminalFontSignal({ size: saved.terminal_font_size, family: saved.terminal_font_family });
+  const saved = fontSettings(await api.saveUiSettings(patch));
+  setTerminalFontSignal(saved);
+  await applyTerminalFont(saved);
 }
 
 export function activeWorkspace() {
